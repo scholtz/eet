@@ -62,7 +62,7 @@ class Sender
      */
     public function __construct($config = null)
     {
-		if(!$config) $config = __DIR__ . '/config/config.json';
+		if($config == null) $config = __DIR__ . '/config/config.json';
         $this->configFromConstruct = $config;
     }
     
@@ -79,6 +79,7 @@ class Sender
         if(is_array($input))
         {
             $receipt = new Receipt();
+
             if(!empty($input['uuid_zpravy']))
             {
                 $receipt->uuid_zpravy = $input['uuid_zpravy'];
@@ -93,9 +94,19 @@ class Sender
             }
             
             $receipt->dat_trzby = isset($input['dat_trzby'])? $input['dat_trzby'] : new DateTime();
-        }
 
-        $this->receipts[] = $receipt;
+            $this->receipts[] = $receipt;
+        }
+        elseif ($input instanceof Receipt)
+        {
+			
+            foreach ($this->config['defaultValues'] AS $key => $defaultValue)
+            {
+				if(!isset($input->$key)) $input->$key = $defaultValue;
+            }
+            if(!isset($input->dat_trzby)) $input->dat_trzby = new DateTime();
+			$this->receipts[] = $input;
+        }
     }
 
     /**
@@ -135,7 +146,8 @@ class Sender
     {
         $this->loadRequirements();
 
-        if (!$this->eetClient){
+        if (!$this->eetClient)
+        {
             throw new ExceptionEet("No certificate provided!");
         }
         
@@ -153,7 +165,7 @@ class Sender
         
         if(isset($response->Varovani))
         {
-            trigger_error('EET communication WARNING: #' . $response->Varovani->kod_varov . ' ' . ExceptionEet::$WARNING_CODE[$response->Varovani->kod_varov], E_USER_WARNING);
+            throw new ExceptionEet('EET communication WARNING: #' . $response->Varovani->kod_varov . ' ' . ExceptionEet::$WARNING_CODE[$response->Varovani->kod_varov]);
         }
         
         if(isset($response->Hlavicka->bkp) && $response->Hlavicka->bkp != $data['KontrolniKody']['bkp']['_'])
@@ -162,6 +174,8 @@ class Sender
         }
         
         $receipt->fik = $response->Potvrzeni->fik;
+
+        $response->pkp = base64_encode($data['KontrolniKody']['pkp']['_']);
 
         return $response;
     }
@@ -197,8 +211,19 @@ class Sender
      */
     public function changeCertificate($certificate, $password)
     {
-        $this->configFromConstruct['certificate']['certificate'] = $certificate;
-        $this->configFromConstruct['certificate']['password']    = $password;
+        if (strlen($certificate) < 2000)
+        {
+            $this->configFromConstruct['certificate']['path'] = $certificate;
+        }
+        else
+        {
+            $this->configFromConstruct['certificate']['certificate'] = $certificate;
+        }
+
+        if (!empty($password))
+        {
+            $this->configFromConstruct['certificate']['password'] = $password;
+        }
 
         $this->loadRequirements();
     }
@@ -212,7 +237,8 @@ class Sender
      */
     public function changeWsdlPath($wsdlPath)
     {
-        $this->config['wsdlPath'] = $wsdlPath;
+        $this->configFromConstruct['wsdlPath'] = $wsdlPath;
+        $this->config['wsdlPath']              = $wsdlPath;
 
         if ($this->eetClient)
         {
@@ -314,7 +340,10 @@ class Sender
         $this->eetClient = new EetClient($this->config['wsdlPath'],
                                          $this->certificate,
                                          isset($this->config['timeout']) ? $this->config['timeout'] : FALSE,
-                                         isset($this->config['connectionTimeout']) ? $this->config['connectionTimeout'] : FALSE);
+                                         isset($this->config['connectionTimeout']) ? $this->config['connectionTimeout'] : FALSE,
+										 $this->config);
+		
+		
     }
 
     /**
@@ -335,11 +364,12 @@ class Sender
     }
     
     /**
-     * 
+     * Return control codes - bkp and pkp
+     *
      * @param Receipt $receipt
-     * @return type
+     * @return array
      */
-    private function getControlCodes(Receipt $receipt)
+    public function getControlCodes(Receipt $receipt)
     {
         $securityKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
         $securityKey->loadKey($this->certificate->pkey);
@@ -375,4 +405,3 @@ class Sender
         return wordwrap(substr(sha1($sig), 0, 40) , 8 , '-' , true);
     }
 }
-
