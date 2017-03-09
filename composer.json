@@ -1,5 +1,5 @@
 {
-    "name": "fritak/eet",
+    "name": "scholtz/eet",
     "description": "API for EET (electronic sales record) client in PHP",
     "type": "library",
     "license": ["MIT"],
